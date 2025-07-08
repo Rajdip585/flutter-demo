@@ -1,122 +1,61 @@
-import 'package:flutter/material.dart';
+/// Flutter QR Code Scanner App for Event Check-in /// Features: /// - Fullscreen QR scanner /// - Local validation of security key /// - API request only after valid QR /// - Red/green border feedback /// - Vibrations & popup alerts
 
-void main() {
-  runApp(const MyApp());
+// Required packages in pubspec.yaml: //   qr_code_scanner: ^1.0.1 //   http: ^0.13.6 //   crypto: ^3.0.3 //   flutter_vibrate: ^1.3.0
+
+// File: lib/main.dart import 'dart:convert'; import 'package:flutter/material.dart'; import 'package:qr_code_scanner/qr_code_scanner.dart'; import 'package:http/http.dart' as http; import 'package:crypto/crypto.dart'; import 'package:flutter_vibrate/flutter_vibrate.dart';
+
+void main() => runApp(const MyApp());
+
+const SECRET_PHRASE = "YourSecretPhraseHere";
+
+class MyApp extends StatelessWidget { const MyApp({super.key});
+
+@override Widget build(BuildContext context) { return const MaterialApp( home: QRCheckInPage(), debugShowCheckedModeBanner: false, ); } }
+
+class QRCheckInPage extends StatefulWidget { const QRCheckInPage({super.key});
+
+@override State<QRCheckInPage> createState() => _QRCheckInPageState(); }
+
+class _QRCheckInPageState extends State<QRCheckInPage> { final GlobalKey qrKey = GlobalKey(debugLabel: 'QR'); QRViewController? controller; bool isProcessing = false; Color borderColor = Colors.transparent;
+
+@override void dispose() { controller?.dispose(); super.dispose(); }
+
+void _onQRViewCreated(QRViewController controller) { this.controller = controller; controller.scannedDataStream.listen((scanData) async { if (isProcessing) return; isProcessing = true; await _processQR(scanData.code); await Future.delayed(const Duration(seconds: 2)); isProcessing = false; }); }
+
+Future<void> _processQR(String? raw) async { if (raw == null || !raw.contains('||')) return; final parts = raw.split('||'); if (parts.length != 2) return;
+
+final id = parts[0];
+final securityKey = parts[1];
+final expected = sha256.convert(utf8.encode(id + base64.encode(utf8.encode(SECRET_PHRASE)))).toString();
+
+if (expected != securityKey) {
+  Vibrate.feedback(FeedbackType.error);
+  setState(() => borderColor = Colors.red);
+  _showAlert("Tempered QR Code", false);
+  return;
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+// Validated → API call
+try {
+  final response = await http.post(
+    Uri.parse("https://yourdomain.com/api/check-in"),
+    headers: {"Content-Type": "application/json"},
+    body: jsonEncode({"participation_id": id}),
+  );
 
-  // This widget is the root of your application.
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
-    );
-  }
+  final data = jsonDecode(response.body);
+  final success = data['status_code'] == 200;
+  setState(() => borderColor = success ? Colors.green : Colors.orange);
+  if (success) Vibrate.feedback(FeedbackType.success);
+  _showAlert(data['message'], success);
+} catch (e) {
+  setState(() => borderColor = Colors.red);
+  _showAlert("API Error: $e", false);
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+void _showAlert(String message, bool success) { showDialog( context: context, builder: (ctx) => AlertDialog( backgroundColor: success ? Colors.green[50] : Colors.red[50], title: Text(success ? "Success" : "Warning"), content: Text(message), actions: [ TextButton( onPressed: () => Navigator.of(ctx).pop(), child: const Text("OK"), ) ], ), ); }
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
-  }
+@override Widget build(BuildContext context) { return Scaffold( body: AnimatedContainer( duration: const Duration(milliseconds: 300), decoration: BoxDecoration( border: Border.all(color: borderColor, width: 8), ), child: QRView( key: qrKey, onQRViewCreated: _onQRViewCreated, overlay: QrScannerOverlayShape( borderWidth: 0, // full screen scanner borderColor: Colors.transparent, cutOutSize: MediaQuery.of(context).size.width * 0.9, ), ), ), ); } }
 
-  @override
-  Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
-    );
-  }
-}
