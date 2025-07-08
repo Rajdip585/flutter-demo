@@ -1,7 +1,7 @@
 name: Flutter Android Build
 
 on:
-  workflow_dispatch:  # Allows manual trigger from GitHub UI
+  workflow_dispatch:  # Manual trigger via GitHub UI
 
 jobs:
   build:
@@ -23,7 +23,7 @@ jobs:
         run: flutter build apk --release
 
       - name: Upload release APK
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
